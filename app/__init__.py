@@ -1,0 +1,1 @@
+"""Local Ollama Web UI."""

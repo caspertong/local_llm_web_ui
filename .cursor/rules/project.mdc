@@ -1,0 +1,14 @@
+---
+description: Follow project docs for the local Ollama web UI
+alwaysApply: true
+---
+
+# Local Ollama Web UI
+
+Read `CLAUDE.md` first, then the linked docs (`CLAUDE_ARCH.md`, `CLAUDE_UI.md`, `CLAUDE_INGEST.md`, `CLAUDE_API.md`).
+
+- Native Ollama APIs only (`/api/chat`, `/api/tags`, `/api/show`). Never `/v1`.
+- Map Thinking + Effort onto a single top-level `think` field.
+- Files are extract-and-inject, not RAG.
+- Keep the UI Claude-like: warm paper, Source Serif 4 for replies, no chat bubbles.
+- Persist chats in SQLite under `data/`. Do not commit `data/`.
