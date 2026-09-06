@@ -6,7 +6,7 @@ Claude-like reading UI, not ChatGPT bubbles. Dark warm charcoal, high-readabilit
 
 - **Sidebar** (left, ~260px, near-black): brand (logo + Hearth), “New chat”, conversation list, collapse control at the bottom. Active chat is a slightly lighter row.
 - **Main column**: max-width 760px, centered. Document flow, not bubbles.
-- **Top bar** (inside the column): model `<select>`, Thinking toggle, Effort `<select>`.
+- **Top bar** (inside the column): model `<select>`, Thinking toggle, Effort `<select>`, Web toggle, Image toggle. Image mode (Comfy reachable and Image on) hides Thinking / Effort / Web and shows checkpoint, LoRA, and aspect selects. If Comfy is down, Image stays visible; turning it on shows a banner.
 - **Composer** (bottom of column, sticky): rounded paperclip + textarea + send. Enter sends, Shift+Enter newline. Multi-file via OS picker (`<input type="file" multiple>`).
 - **Empty state**: short greeting, no marketing.
 
@@ -45,12 +45,14 @@ On model change, GET `/api/models/{name}` (capabilities) and:
 - Has `thinking`, not GPT-OSS → show Thinking. Show Effort only when Thinking is on. Options: Low, Medium, High, Max.
 - GPT-OSS → Thinking locked on (visible, disabled). Effort: Low, Medium, High (no Max).
 
+Image mode (Comfy up, Image on): hide Thinking, Effort, and Web. Show checkpoint, LoRA, and aspect. Composer placeholder is an image prompt. Image on/off is per conversation (restored when you open that chat), not a global toolbar flag. The Image toggle is always in the toolbar.
+
 Default: Thinking on when available; Effort Medium.
 
 ## Messages
 
 - User: left-aligned prompt, ink, modest top margin.
-- Assistant: serif body. Markdown rendered (headings, lists, code, tables).
+- Assistant: serif body. Markdown rendered (headings, lists, code, tables). Generated images render as a full-width figure under the caption.
 - Attachments: chips under the user prompt (filename + kind). Warnings in muted italic.
 - Thinking: `<details>` labeled “Thinking…” while streaming (open). On `done`, collapse and retitle “Thought for Ns” if elapsed is known, else “Thought”.
 - Streaming cursor: a dim terracotta caret on the active block.

@@ -8,6 +8,9 @@ Read this file first. Then:
 - [CLAUDE_UI.md](CLAUDE_UI.md) — layout, typography, control visibility
 - [CLAUDE_INGEST.md](CLAUDE_INGEST.md) — file types, extract-and-inject, truncation
 - [CLAUDE_API.md](CLAUDE_API.md) — our REST/SSE endpoints and the Ollama calls they wrap
+- [docs/COMFY.md](docs/COMFY.md) — optional local Flux via ComfyUI
+
+## Run
 
 ## Run
 
@@ -39,3 +42,5 @@ docker compose up --build
 ## Out of scope (v1)
 
 RAG, auth, pulling/deleting models, tool calling, multi-node Ollama.
+
+Optional image generation uses a **separate** ComfyUI process. See [docs/COMFY.md](docs/COMFY.md).

@@ -17,10 +17,12 @@ def _now() -> str:
 
 
 def _row_to_conv(row: sqlite3.Row) -> dict[str, Any]:
+    keys = row.keys()
     return {
         "id": row["id"],
         "title": row["title"],
         "model": row["model"],
+        "image_mode": bool(row["image_mode"]) if "image_mode" in keys else False,
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
@@ -63,6 +65,7 @@ class Store:
                     id TEXT PRIMARY KEY,
                     title TEXT NOT NULL DEFAULT 'New chat',
                     model TEXT NOT NULL DEFAULT '',
+                    image_mode INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -80,6 +83,24 @@ class Store:
                     ON messages(conversation_id, created_at);
                 """
             )
+            cols = {
+                r[1]
+                for r in self._conn.execute("PRAGMA table_info(conversations)").fetchall()
+            }
+            if "image_mode" not in cols:
+                self._conn.execute(
+                    "ALTER TABLE conversations ADD COLUMN image_mode INTEGER NOT NULL DEFAULT 0"
+                )
+                self._conn.execute(
+                    """
+                    UPDATE conversations SET image_mode = 1
+                    WHERE id IN (
+                        SELECT DISTINCT conversation_id FROM messages
+                        WHERE role = 'assistant'
+                          AND attachments LIKE '%"kind": "image"%'
+                    )
+                    """
+                )
             self._conn.commit()
 
     def list_conversations(self) -> list[dict[str, Any]]:
@@ -89,14 +110,14 @@ class Store:
             ).fetchall()
         return [_row_to_conv(r) for r in rows]
 
-    def create_conversation(self, model: str) -> dict[str, Any]:
+    def create_conversation(self, model: str, image_mode: bool = False) -> dict[str, Any]:
         now = _now()
         conv_id = str(uuid.uuid4())
         with self._lock:
             self._conn.execute(
-                "INSERT INTO conversations (id, title, model, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (conv_id, "New chat", model, now, now),
+                "INSERT INTO conversations (id, title, model, image_mode, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (conv_id, "New chat", model, 1 if image_mode else 0, now, now),
             )
             self._conn.commit()
         (self.uploads_root / conv_id).mkdir(parents=True, exist_ok=True)
@@ -104,6 +125,7 @@ class Store:
             "id": conv_id,
             "title": "New chat",
             "model": model,
+            "image_mode": bool(image_mode),
             "created_at": now,
             "updated_at": now,
         }
@@ -125,20 +147,37 @@ class Store:
         return conv
 
     def patch_conversation(
-        self, conv_id: str, *, title: Optional[str] = None, model: Optional[str] = None
+        self,
+        conv_id: str,
+        *,
+        title: Optional[str] = None,
+        model: Optional[str] = None,
+        image_mode: Optional[bool] = None,
     ) -> Optional[dict[str, Any]]:
         conv = self.get_conversation(conv_id)
         if not conv:
             return None
+        bump = False
         if title is not None:
             conv["title"] = title
+            bump = True
         if model is not None:
             conv["model"] = model
-        conv["updated_at"] = _now()
+            bump = True
+        if image_mode is not None:
+            conv["image_mode"] = bool(image_mode)
+        if bump:
+            conv["updated_at"] = _now()
         with self._lock:
             self._conn.execute(
-                "UPDATE conversations SET title = ?, model = ?, updated_at = ? WHERE id = ?",
-                (conv["title"], conv["model"], conv["updated_at"], conv_id),
+                "UPDATE conversations SET title = ?, model = ?, image_mode = ?, updated_at = ? WHERE id = ?",
+                (
+                    conv["title"],
+                    conv["model"],
+                    1 if conv["image_mode"] else 0,
+                    conv["updated_at"],
+                    conv_id,
+                ),
             )
             self._conn.commit()
         return conv

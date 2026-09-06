@@ -7,15 +7,17 @@ All JSON. Errors: `{ "error": "…" }` with 4xx/5xx. SSE uses `text/event-stream
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/` | SPA |
-| GET | `/api/health` | `{ "ok": true, "ollama": bool }` |
+| GET | `/api/health` | `{ "ok": true, "ollama": bool, "comfy": bool }` |
 | GET | `/api/models` | Installed models from Ollama `/api/tags` |
 | GET | `/api/models/{name}` | Capabilities from `/api/show` (see below) |
+| GET | `/api/image/models` | Comfy UNET/checkpoints + LoRAs (`{ "checkpoints", "loras" }`) |
 | GET | `/api/chats` | Conversation list, newest first |
-| POST | `/api/chats` | `{ "model": "…" }` → new conversation |
-| GET | `/api/chats/{id}` | Conversation + messages |
-| PATCH | `/api/chats/{id}` | `{ "title"?, "model"? }` |
+| POST | `/api/chats` | `{ "model": "…", "image_mode"? }` → new conversation |
+| GET | `/api/chats/{id}` | Conversation + messages (`image_mode` included) |
+| PATCH | `/api/chats/{id}` | `{ "title"?, "model"?, "image_mode"? }` |
 | DELETE | `/api/chats/{id}` | Delete chat + upload dir |
 | POST | `/api/chats/{id}/messages` | Send turn (multipart or JSON); **SSE** |
+| POST | `/api/chats/{id}/images` | Flux txt2img via ComfyUI; **SSE** |
 
 ### `GET /api/models/{name}`
 
@@ -45,6 +47,14 @@ SSE events:
 - `user` — `{ "message": {…} }` the persisted user turn (including attachment warnings)
 - `done` — `{ "message": {…} }` persisted assistant turn
 - `error` — `{ "error": "…" }`
+
+### `POST /api/chats/{id}/images`
+
+JSON: `{ "content", "checkpoint?", "lora?", "aspect?", "seed?" }`. `aspect` is `1:1` | `3:4` | `9:16` | `16:9`. Multipart with the same field names is also accepted.
+
+SSE events: `user`, `status` (`{ "text": "Generating image…" }`), `done` (assistant message with `kind: image` attachment), `error`.
+
+Requires ComfyUI at `COMFY_HOST`. See [docs/COMFY.md](docs/COMFY.md).
 
 ## Ollama calls (native only)
 

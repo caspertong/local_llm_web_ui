@@ -281,6 +281,16 @@ textarea:focus {
   height: 15px;
 }
 
+.toggle-wrap:has(input:checked) {
+  color: var(--terracotta-deep);
+}
+
+.thread-status {
+  margin: 8px 0 0;
+  color: var(--ink-muted);
+  font: 500 14px/1.4 var(--font-ui);
+}
+
 .banner {
   margin: 0 0 8px;
   padding: 8px 12px;
@@ -419,13 +429,8 @@ textarea:focus {
   color: var(--ink);
 }
 
-.chip button {
-  border: 0;
-  background: transparent;
-  color: var(--ink-muted);
-  cursor: pointer;
-  padding: 0;
-  font-size: 14px;
+.chip.web {
+  color: var(--terracotta-deep);
 }
 
 .warning {
@@ -535,6 +540,19 @@ textarea::placeholder {
   border-radius: 10px;
   border: 1px solid var(--line);
   margin-top: 8px;
+}
+
+.gen-figure {
+  margin: 12px 0 0;
+}
+
+.gen-figure img {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  border-radius: 12px;
+  border: 1px solid var(--line);
 }
 
 @media (max-width: 720px) {

@@ -6,11 +6,12 @@
 Browser SPA  →  FastAPI (REST + SSE)  →  Ollama :11434
                       │
                       ├── capabilities.py   (think / vision / gpt-oss)
+                      ├── comfy_client.py   (optional Flux txt2img via ComfyUI :8188)
                       ├── ingest/           (file → text or images)
                       └── storage.py        (SQLite + upload copies)
 ```
 
-`app/main.py` serves the SPA and JSON/SSE APIs. `app/ollama_client.py` is the only module that HTTP-calls Ollama.
+`app/main.py` serves the SPA and JSON/SSE APIs. `app/ollama_client.py` is the only module that HTTP-calls Ollama. `app/comfy_client.py` is the only module that HTTP-calls ComfyUI (`COMFY_HOST`, default `http://127.0.0.1:8188`). Comfy is optional: if it is down, chat still works; the Image toggle stays visible and explains that Comfy is unreachable.
 
 ## Request flow (send a message)
 
@@ -37,11 +38,17 @@ If `thinking` is missing from capabilities, omit `think` entirely.
 
 ## Vision
 
-If `vision` is in capabilities, image bytes (and rasterized empty PDFs) go on the user message as `images` (base64). Otherwise images are skipped with a warning attached to the user message.
+If `vision` is in capabilities, image bytes (and rasterized empty PDFs) go on the user message as `images` (base64). Otherwise images are skipped with a warning attached to the user message. Assistant-generated images are not sent back to Ollama.
+
+## Image generation (ComfyUI)
+
+When Image mode is on, the client POSTs `/api/chats/{id}/images` instead of `/api/chats/{id}/messages`. FastAPI queues a Flux txt2img workflow on Comfy (`POST /prompt`, poll `/history`, `GET /view`) and stores the PNG under `data/uploads/{conversation_id}/`. The assistant message has `attachments` with `kind: image`.
+
+Community Flux LoRAs are files the user places in ComfyUI’s `models/loras/` folder. Hearth only lists what Comfy reports.
 
 ## Data model (SQLite `data/app.db`)
 
-**conversations:** `id`, `title`, `model`, `created_at`, `updated_at`
+**conversations:** `id`, `title`, `model`, `image_mode` (bool; Image vs Ollama for that chat), `created_at`, `updated_at`
 
 **messages:** `id`, `conversation_id`, `role` (`user`|`assistant`), `content`, `thinking`, `attachments` (JSON), `created_at`
 

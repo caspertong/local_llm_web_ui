@@ -55,6 +55,31 @@
           <span class="sr-only">Effort</span>
           <select id="effort" class="effort-select"></select>
         </label>
+        <label class="toggle-wrap" id="web-wrap">
+          <input type="checkbox" id="web" />
+          <span>Web</span>
+        </label>
+        <label class="toggle-wrap" id="image-wrap">
+          <input type="checkbox" id="image-mode" />
+          <span>Image</span>
+        </label>
+        <label class="effort-wrap" id="image-ckpt-wrap" hidden>
+          <span class="sr-only">Image model</span>
+          <select id="image-ckpt" class="effort-select"></select>
+        </label>
+        <label class="effort-wrap" id="image-lora-wrap" hidden>
+          <span class="sr-only">LoRA</span>
+          <select id="image-lora" class="effort-select"></select>
+        </label>
+        <label class="effort-wrap" id="image-aspect-wrap" hidden>
+          <span class="sr-only">Aspect ratio</span>
+          <select id="image-aspect" class="effort-select">
+            <option value="1:1">1:1</option>
+            <option value="3:4">3:4</option>
+            <option value="9:16">9:16</option>
+            <option value="16:9">16:9</option>
+          </select>
+        </label>
       </header>
 
       <p class="banner" id="banner" hidden></p>

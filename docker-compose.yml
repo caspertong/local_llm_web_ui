@@ -10,3 +10,4 @@ services:
     environment:
       OLLAMA_HOST: http://host.docker.internal:11434
       DATA_DIR: /data
+      OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}

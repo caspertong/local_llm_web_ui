@@ -15,6 +15,12 @@ const state = {
   caps: null,
   thinking: true,
   effort: "medium",
+  web: localStorage.getItem("hearth-web") === "1",
+  comfy: false,
+  imageMode: false,
+  imageCheckpoint: "",
+  imageLora: "",
+  imageAspect: localStorage.getItem("hearth-image-aspect") || "1:1",
   files: [],
   streaming: false,
   filter: "",
@@ -32,6 +38,16 @@ const els = {
   thinkWrap: document.getElementById("think-wrap"),
   effort: document.getElementById("effort"),
   effortWrap: document.getElementById("effort-wrap"),
+  web: document.getElementById("web"),
+  webWrap: document.getElementById("web-wrap"),
+  imageMode: document.getElementById("image-mode"),
+  imageWrap: document.getElementById("image-wrap"),
+  imageCkpt: document.getElementById("image-ckpt"),
+  imageCkptWrap: document.getElementById("image-ckpt-wrap"),
+  imageLora: document.getElementById("image-lora"),
+  imageLoraWrap: document.getElementById("image-lora-wrap"),
+  imageAspect: document.getElementById("image-aspect"),
+  imageAspectWrap: document.getElementById("image-aspect-wrap"),
   banner: document.getElementById("banner"),
   thread: document.getElementById("thread"),
   empty: document.getElementById("empty"),
@@ -64,6 +80,8 @@ function labelEffort(value) {
 function displayUserText(content) {
   return (content || "")
     .replace(/<attachment\b[^>]*>[\s\S]*?<\/attachment>/g, "")
+    .replace(/<web_search\b[^>]*>[\s\S]*?<\/web_search>/g, "")
+    .replace(/Use the web_search results below for current information\. Cite source URLs in the answer\./g, "")
     .trim();
 }
 
@@ -77,6 +95,7 @@ function applyCaps(caps) {
   if (!caps || !caps.thinking) {
     els.thinkWrap.hidden = true;
     els.effortWrap.hidden = true;
+    syncToolbar();
     return;
   }
   els.thinkWrap.hidden = false;
@@ -96,6 +115,83 @@ function applyCaps(caps) {
   }
   els.effort.value = state.effort;
   els.effortWrap.hidden = !state.thinking;
+  syncToolbar();
+}
+
+function syncToolbar() {
+  const image = !!(state.imageMode && state.comfy);
+  els.imageWrap.title = state.comfy ? "" : "Requires ComfyUI on port 8188";
+  els.imageCkptWrap.hidden = !image;
+  els.imageLoraWrap.hidden = !image;
+  els.imageAspectWrap.hidden = !image;
+  if (els.imageMode) els.imageMode.checked = !!state.imageMode;
+  if (image) {
+    els.thinkWrap.hidden = true;
+    els.effortWrap.hidden = true;
+    els.webWrap.hidden = true;
+    els.model.hidden = true;
+    els.attach.hidden = true;
+    els.prompt.placeholder = "Describe an image…";
+  } else {
+    els.model.hidden = false;
+    els.attach.hidden = false;
+    els.webWrap.hidden = false;
+    if (state.caps && state.caps.thinking) {
+      els.thinkWrap.hidden = false;
+      els.effortWrap.hidden = !state.thinking;
+    }
+    els.prompt.placeholder = state.web ? "Ask with web search…" : "Write a message…";
+  }
+}
+
+function fillSelect(select, names, selected, emptyLabel) {
+  select.innerHTML = "";
+  if (emptyLabel) select.add(new Option(emptyLabel, ""));
+  for (const name of names) {
+    select.add(new Option(name, name));
+  }
+  if (selected && names.includes(selected)) select.value = selected;
+  else if (!emptyLabel && names.length) select.value = names[0];
+  else select.value = "";
+  return select.value;
+}
+
+function preferFlux(names) {
+  const fp8 = names.find((n) => /flux/i.test(n) && /fp8/i.test(n));
+  if (fp8) return fp8;
+  const flux = names.find((n) => /flux1-dev|flux/i.test(n));
+  return flux || names[0] || "";
+}
+
+async function loadImageModels() {
+  if (!state.comfy) {
+    syncToolbar();
+    return;
+  }
+  const res = await fetch("/api/image/models");
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    showBanner(data.error || "Could not list ComfyUI models.");
+    syncToolbar();
+    return;
+  }
+  const checkpoints = data.checkpoints || [];
+  const loras = data.loras || [];
+  state.imageCheckpoint = fillSelect(
+    els.imageCkpt,
+    checkpoints,
+    state.imageCheckpoint || preferFlux(checkpoints),
+    checkpoints.length ? "" : "No checkpoints"
+  );
+  fillSelect(els.imageLora, loras, state.imageLora, "No LoRA");
+  state.imageLora = els.imageLora.value;
+  if (els.imageAspect) {
+    if (![...els.imageAspect.options].some((o) => o.value === state.imageAspect)) {
+      state.imageAspect = "1:1";
+    }
+    els.imageAspect.value = state.imageAspect;
+  }
+  syncToolbar();
 }
 
 async function loadCaps(name) {
@@ -141,7 +237,9 @@ async function loadHealth() {
   try {
     const res = await fetch("/api/health");
     const data = await res.json();
+    state.comfy = !!data.comfy;
     if (!data.ollama) showBanner("Ollama is not reachable at the configured host.");
+    await loadImageModels();
   } catch {
     showBanner("The UI server is not responding.");
   }
@@ -166,6 +264,7 @@ function renderChatList() {
     row.addEventListener("click", (e) => {
       if (e.target.closest(".delete")) return;
       openChat(chat.id);
+      collapseSidebarOnMobile();
     });
     row.querySelector(".delete").addEventListener("click", (e) => {
       e.stopPropagation();
@@ -179,10 +278,42 @@ function newChat() {
   state.currentId = null;
   state.messages = [];
   state.files = [];
+  state.imageMode = false;
   renderChips();
   renderThread();
   renderChatList();
+  syncToolbar();
   els.prompt.focus();
+}
+
+async function persistImageMode() {
+  if (!state.currentId) return;
+  await fetch(`/api/chats/${state.currentId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ image_mode: !!state.imageMode }),
+  });
+}
+
+async function applyChatSettings(data) {
+  state.imageMode = !!data.image_mode;
+  const known = !!(data.model && state.models.some((m) => m.name === data.model));
+  if (known) {
+    state.model = data.model;
+    els.model.value = data.model;
+    await loadCaps(data.model);
+  } else {
+    syncToolbar();
+  }
+  if (
+    state.imageMode
+    && data.model
+    && els.imageCkpt
+    && [...els.imageCkpt.options].some((o) => o.value === data.model)
+  ) {
+    state.imageCheckpoint = data.model;
+    els.imageCkpt.value = data.model;
+  }
 }
 
 async function openChat(id) {
@@ -194,11 +325,7 @@ async function openChat(id) {
   }
   state.currentId = id;
   state.messages = data.messages || [];
-  if (data.model) {
-    state.model = data.model;
-    els.model.value = data.model;
-    await loadCaps(data.model);
-  }
+  await applyChatSettings(data);
   renderChatList();
   renderThread();
 }
@@ -229,8 +356,8 @@ function attachmentChips(msg) {
   wrap.className = "chips-row";
   for (const att of msg.attachments || []) {
     const chip = document.createElement("span");
-    chip.className = "chip";
-    chip.textContent = att.filename;
+    chip.className = "chip" + (att.kind === "web" ? " web" : "");
+    chip.textContent = att.kind === "web" ? "Web" : att.filename;
     wrap.appendChild(chip);
     if (att.kind === "image" && att.path && msg.conversation_id) {
       const img = document.createElement("img");
@@ -294,6 +421,18 @@ function renderMessage(msg, streaming = false) {
   body.className = "body" + (streaming ? " caret" : "");
   body.innerHTML = renderMarkdown(msg.content || "");
   el.appendChild(body);
+  const images = (msg.attachments || []).filter((att) => att.kind === "image" && att.path && msg.conversation_id);
+  if (images.length) {
+    const fig = document.createElement("figure");
+    fig.className = "gen-figure";
+    for (const att of images) {
+      const img = document.createElement("img");
+      img.alt = att.filename || "Generated image";
+      img.src = `/api/chats/${msg.conversation_id}/files/${encodeURIComponent(att.filename)}`;
+      fig.appendChild(img);
+    }
+    el.appendChild(fig);
+  }
   return el;
 }
 
@@ -334,8 +473,16 @@ async function readSSE(response, handlers) {
 async function send() {
   if (state.streaming) return;
   const text = els.prompt.value.trim();
-  if (!text && !state.files.length) return;
-  if (!state.model) {
+  if (state.imageMode && !state.comfy) {
+    await loadHealth();
+    if (!state.comfy) {
+      showBanner("ComfyUI is not reachable. Start it on port 8188, then send again.");
+      return;
+    }
+  }
+  const image = !!(state.imageMode && state.comfy);
+  if (!text && (image || !state.files.length)) return;
+  if (!image && !state.model) {
     showBanner("Select a model first.");
     return;
   }
@@ -348,7 +495,10 @@ async function send() {
     const created = await fetch("/api/chats", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: state.model }),
+      body: JSON.stringify({
+        model: state.model || state.imageCheckpoint || "flux",
+        image_mode: !!state.imageMode,
+      }),
     });
     const chat = await created.json();
     if (!created.ok) {
@@ -361,33 +511,60 @@ async function send() {
     await loadChats();
   }
 
-  const form = new FormData();
-  form.append("content", text);
-  form.append("thinking", state.thinking ? "true" : "false");
-  if (state.thinking && state.effort) form.append("effort", state.effort);
-  form.append("model", state.model);
-  for (const file of state.files) form.append("files", file);
-
   els.prompt.value = "";
   autosize();
   const pendingFiles = state.files.slice();
-  state.files = [];
-  renderChips();
+  if (!image) {
+    state.files = [];
+    renderChips();
+  }
 
   const assistant = { role: "assistant", content: "", thinking: "", attachments: [] };
   let assistantEl = null;
   const started = Date.now();
+  const url = image
+    ? `/api/chats/${state.currentId}/images`
+    : `/api/chats/${state.currentId}/messages`;
 
   try {
-    const res = await fetch(`/api/chats/${state.currentId}/messages`, {
-      method: "POST",
-      body: form,
-    });
+    let res;
+    if (image) {
+      res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: text,
+          checkpoint: state.imageCheckpoint || null,
+          lora: state.imageLora || null,
+          aspect: state.imageAspect || "1:1",
+        }),
+      });
+    } else {
+      const form = new FormData();
+      form.append("content", text);
+      form.append("thinking", state.thinking ? "true" : "false");
+      form.append("web", state.web ? "true" : "false");
+      if (state.thinking && state.effort) form.append("effort", state.effort);
+      form.append("model", state.model);
+      for (const file of pendingFiles) form.append("files", file);
+      res = await fetch(url, { method: "POST", body: form });
+    }
     if (!res.ok) {
       const data = await res.json().catch(() => ({ error: res.statusText }));
       throw new Error(data.error || "Send failed");
     }
     await readSSE(res, {
+      status(payload) {
+        let statusEl = els.thread.querySelector(".thread-status");
+        if (!statusEl) {
+          if (els.empty.parentNode) els.empty.remove();
+          statusEl = document.createElement("p");
+          statusEl.className = "thread-status";
+          els.thread.appendChild(statusEl);
+        }
+        statusEl.textContent = payload.text || "Working…";
+        els.thread.scrollTop = els.thread.scrollHeight;
+      },
       user(payload) {
         const msg = payload.message;
         state.messages.push(msg);
@@ -398,8 +575,10 @@ async function send() {
         }
         if (els.empty.parentNode) els.empty.remove();
         els.thread.appendChild(renderMessage(msg));
-        assistantEl = renderMessage(assistant, true);
-        els.thread.appendChild(assistantEl);
+        if (!image) {
+          assistantEl = renderMessage(assistant, true);
+          els.thread.appendChild(assistantEl);
+        }
         els.thread.scrollTop = els.thread.scrollHeight;
       },
       thinking(payload) {
@@ -429,29 +608,35 @@ async function send() {
         els.thread.scrollTop = els.thread.scrollHeight;
       },
       done(payload) {
+        const statusEl = els.thread.querySelector(".thread-status");
+        if (statusEl) statusEl.remove();
         const msg = payload.message;
         state.messages.push(msg);
-        if (assistantEl) {
-          const secs = Math.max(1, Math.round((Date.now() - started) / 1000));
-          const details = assistantEl.querySelector(".thinking");
-          if (details) {
-            details.open = false;
-            details.querySelector("summary").textContent = msg.thinking
-              ? `Thought for ${secs}s`
-              : "Thought";
-          }
-          const body = assistantEl.querySelector(".body");
-          body.classList.remove("caret");
-          body.innerHTML = renderMarkdown(msg.content || "");
+        const secs = Math.max(1, Math.round((Date.now() - started) / 1000));
+        const next = renderMessage(msg);
+        const details = next.querySelector(".thinking");
+        if (details) {
+          details.open = false;
+          details.querySelector("summary").textContent = msg.thinking
+            ? `Thought for ${secs}s`
+            : "Thought";
         }
+        if (assistantEl) assistantEl.replaceWith(next);
+        else els.thread.appendChild(next);
+        assistantEl = next;
+        els.thread.scrollTop = els.thread.scrollHeight;
       },
       error(payload) {
+        const statusEl = els.thread.querySelector(".thread-status");
+        if (statusEl) statusEl.remove();
         showBanner(payload.error || "The model request failed");
       },
     });
   } catch (err) {
+    const statusEl = els.thread.querySelector(".thread-status");
+    if (statusEl) statusEl.remove();
     showBanner(err.message || "The model request failed");
-    if (!state.messages.length) {
+    if (!image && !state.messages.length) {
       state.files = pendingFiles;
       renderChips();
     }
@@ -465,14 +650,35 @@ async function send() {
   }
 }
 
-els.newChat.addEventListener("click", newChat);
-els.collapse.addEventListener("click", () => {
+function isMobileLayout() {
+  return window.matchMedia("(max-width: 720px)").matches;
+}
+
+function collapseSidebar() {
   document.body.classList.add("sidebar-collapsed");
   els.reopen.hidden = false;
-});
-els.reopen.addEventListener("click", () => {
+}
+
+function expandSidebar() {
   document.body.classList.remove("sidebar-collapsed");
   els.reopen.hidden = true;
+}
+
+function collapseSidebarOnMobile() {
+  if (isMobileLayout()) collapseSidebar();
+}
+
+els.newChat.addEventListener("click", () => {
+  newChat();
+  collapseSidebarOnMobile();
+});
+els.collapse.addEventListener("click", collapseSidebar);
+els.reopen.addEventListener("click", expandSidebar);
+document.addEventListener("pointerdown", (e) => {
+  if (!isMobileLayout()) return;
+  if (document.body.classList.contains("sidebar-collapsed")) return;
+  if (els.sidebar.contains(e.target)) return;
+  collapseSidebar();
 });
 els.search.addEventListener("input", () => {
   state.filter = els.search.value;
@@ -491,7 +697,40 @@ els.model.addEventListener("change", async () => {
 });
 els.thinking.addEventListener("change", () => {
   state.thinking = els.thinking.checked;
-  els.effortWrap.hidden = !state.caps?.thinking || !state.thinking;
+  els.effortWrap.hidden = !state.caps?.thinking || !state.thinking || state.imageMode;
+});
+els.web.addEventListener("change", () => {
+  state.web = els.web.checked;
+  localStorage.setItem("hearth-web", state.web ? "1" : "0");
+  if (!state.imageMode) {
+    els.prompt.placeholder = state.web ? "Ask with web search…" : "Write a message…";
+  }
+});
+els.imageMode.addEventListener("change", async () => {
+  if (els.imageMode.checked && !state.comfy) {
+    await loadHealth();
+  }
+  if (els.imageMode.checked && !state.comfy) {
+    els.imageMode.checked = false;
+    state.imageMode = false;
+    syncToolbar();
+    showBanner("ComfyUI is not reachable. Start it on port 8188, then turn Image on.");
+    return;
+  }
+  state.imageMode = els.imageMode.checked;
+  syncToolbar();
+  persistImageMode();
+  if (state.imageMode) await loadImageModels();
+});
+els.imageCkpt.addEventListener("change", () => {
+  state.imageCheckpoint = els.imageCkpt.value;
+});
+els.imageLora.addEventListener("change", () => {
+  state.imageLora = els.imageLora.value;
+});
+els.imageAspect.addEventListener("change", () => {
+  state.imageAspect = els.imageAspect.value;
+  localStorage.setItem("hearth-image-aspect", state.imageAspect);
 });
 els.effort.addEventListener("change", () => {
   state.effort = els.effort.value;
@@ -522,6 +761,9 @@ els.composer.addEventListener("submit", (e) => {
   await loadHealth();
   await loadModels();
   await loadChats();
+  els.web.checked = state.web;
+  els.imageAspect.value = state.imageAspect;
+  syncToolbar();
   renderThread();
   els.prompt.focus();
 })();

@@ -21,7 +21,7 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 Open [http://127.0.0.1:8000](http://127.0.0.1:8000).
 
-Optional: `OLLAMA_HOST=http://localhost:11434`.
+Optional: `OLLAMA_HOST=http://localhost:11434`. Optional: `COMFY_HOST=http://127.0.0.1:8188` for image generation.
 
 ## Docker
 
@@ -40,6 +40,7 @@ Then open [http://127.0.0.1:8000](http://127.0.0.1:8000).
 - Multi-file upload via the OS file picker (images, PDF, Office, CSV, text, Markdown, JSON)
 - Extract-and-inject into the prompt (not a vector knowledge base)
 - Persistent chat history in local SQLite
+- Optional **Image** mode when [ComfyUI](https://github.com/comfyanonymous/ComfyUI) is running locally (Flux txt2img). See [docs/COMFY.md](docs/COMFY.md).
 
 ## Docs for contributors
 
