@@ -105,9 +105,36 @@ async def chat_stream(
                         yield "thinking", thinking
                     if content:
                         yield "content", content
-                    if chunk.get("done"):
+        if chunk.get("done"):
                         return
     except OllamaError:
         raise
     except httpx.HTTPError as exc:
         raise OllamaError(f"Ollama stream failed: {exc}") from exc
+
+
+async def chat_once(model: str, messages: list[dict[str, Any]]) -> str:
+    body: dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "stream": False,
+    }
+    timeout = httpx.Timeout(60.0, read=90.0)
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(f"{OLLAMA_HOST}/api/chat", json=body)
+            if response.status_code >= 400:
+                raw = response.text
+                raise OllamaError(
+                    f"Ollama chat failed ({response.status_code}): {raw[:500]}",
+                    status_code=502,
+                )
+            payload = response.json()
+    except OllamaError:
+        raise
+    except httpx.HTTPError as exc:
+        raise OllamaError(f"Ollama chat failed: {exc}") from exc
+    if err := payload.get("error"):
+        raise OllamaError(str(err))
+    message = payload.get("message") or {}
+    return (message.get("content") or "").strip()

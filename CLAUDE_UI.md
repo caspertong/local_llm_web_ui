@@ -4,7 +4,9 @@ Claude-like reading UI, not ChatGPT bubbles. Dark warm charcoal, high-readabilit
 
 ## Layout
 
-- **Sidebar** (left, ~260px, near-black): brand (logo + Hearth), “New chat”, conversation list, collapse control at the bottom. Active chat is a slightly lighter row.
+- **Sidebar** (left, ~260px, near-black): brand (logo + Hearth), **Chats | Projects** tabs, “New chat” or “New project”, conversation or project list, collapse control at the bottom. Active chat/project is a slightly lighter row.
+- **Main column**: max-width 760px, centered. Document flow, not bubbles. A project with no open chat shows the project name and recents.
+- **Project rail** (right, ~300px, when a project is active): Instructions, Memory, Context (file cards + capacity). On viewports under 1100px it is a slide-over opened from the toolbar.
 - **Main column**: max-width 760px, centered. Document flow, not bubbles.
 - **Top bar** (inside the column): model `<select>`, Thinking toggle, Effort `<select>`, Web toggle, Image toggle. Image mode (Comfy reachable and Image on) hides Thinking / Effort / Web and shows checkpoint, LoRA, and aspect selects. If Comfy is down, Image stays visible; turning it on shows a banner.
 - **Composer** (bottom of column, sticky): rounded paperclip + textarea + send. Enter sends, Shift+Enter newline. Multi-file via OS picker (`<input type="file" multiple>`).

@@ -34,8 +34,8 @@ docker compose up --build
 - Python 3.9+, type hints, no extra frameworks.
 - Talk to Ollama’s **native** `/api/chat`, `/api/tags`, `/api/show`. Never the OpenAI-compat `/v1` path (`reasoning_effort` is a different value set).
 - Thinking and effort are **one** Ollama field (`think`). Two UI controls map onto it. See CLAUDE_ARCH.md.
-- Files are extract-and-inject, not RAG. See CLAUDE_INGEST.md.
-- Persist conversations in SQLite under `data/` (gitignored). Do not store secrets.
+- Files are extract-and-inject, not RAG. See CLAUDE_INGEST.md. Project files are ingested on upload and injected live on each turn.
+- Persist conversations and projects in SQLite under `data/` (gitignored). Do not store secrets.
 - Frontend is vanilla HTML/CSS/JS in `app/templates` and `app/static`. No Node build.
 - Keep the UI Claude-like: warm paper, readable type, document layout (not chat bubbles). See CLAUDE_UI.md.
 

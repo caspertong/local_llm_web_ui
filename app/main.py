@@ -16,8 +16,15 @@ from app.capabilities import from_show, map_think
 from app.comfy_client import ASPECTS, ComfyError, generate as comfy_generate
 from app.comfy_client import health as comfy_health
 from app.comfy_client import list_models as comfy_list_models
-from app.ingest.extract import image_to_jpeg, ingest_files
+from app.config import MEMORY_MAX_CHARS
+from app.ingest.extract import (
+    PROJECT_DOC_EXTS,
+    image_to_jpeg,
+    ingest_files,
+    project_capacity,
+)
 from app.ollama_client import OllamaError, chat_stream, health, list_models, show_model
+from app.project_prompt import build_system_content, maybe_update_memory
 from app.storage import Store
 from app.web_search import search_web, wrap_web_results
 
@@ -32,12 +39,23 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 class ChatCreate(BaseModel):
     model: str
     image_mode: bool = False
+    project_id: Optional[str] = None
 
 
 class ChatPatch(BaseModel):
     title: Optional[str] = None
     model: Optional[str] = None
     image_mode: Optional[bool] = None
+
+
+class ProjectCreate(BaseModel):
+    name: str = "Untitled project"
+
+
+class ProjectPatch(BaseModel):
+    name: Optional[str] = None
+    instructions: Optional[str] = None
+    memory: Optional[str] = None
 
 
 class MessageJSON(BaseModel):
@@ -54,6 +72,15 @@ class ImageJSON(BaseModel):
     lora: Optional[str] = None
     aspect: str = "1:1"
     seed: Optional[int] = None
+
+
+def _project_payload(project_id: str) -> Optional[dict[str, Any]]:
+    project = store.get_project_detail(project_id)
+    if not project:
+        return None
+    project["extracted_chars"] = store.extracted_chars_total(project_id)
+    project["capacity"] = project_capacity(32768)
+    return project
 
 
 def _sse(event: str, data: dict[str, Any]) -> str:
@@ -120,7 +147,133 @@ async def api_chats() -> dict[str, Any]:
 async def api_create_chat(body: ChatCreate) -> dict[str, Any]:
     if not body.model.strip():
         raise HTTPException(status_code=400, detail="model is required")
-    return store.create_conversation(body.model.strip(), image_mode=body.image_mode)
+    project_id = (body.project_id or "").strip() or None
+    if project_id and not store.get_project(project_id):
+        raise HTTPException(status_code=404, detail="Project not found")
+    return store.create_conversation(
+        body.model.strip(),
+        image_mode=body.image_mode,
+        project_id=project_id,
+    )
+
+
+@app.get("/api/projects")
+async def api_projects() -> dict[str, Any]:
+    return {"projects": store.list_projects()}
+
+
+@app.post("/api/projects")
+async def api_create_project(body: ProjectCreate) -> dict[str, Any]:
+    return store.create_project(body.name)
+
+
+@app.get("/api/projects/{project_id}")
+async def api_get_project(project_id: str) -> dict[str, Any]:
+    project = _project_payload(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return project
+
+
+@app.patch("/api/projects/{project_id}")
+async def api_patch_project(project_id: str, body: ProjectPatch) -> dict[str, Any]:
+    memory = body.memory
+    if memory is not None:
+        memory = memory[:MEMORY_MAX_CHARS]
+    if not store.patch_project(
+        project_id,
+        name=body.name,
+        instructions=body.instructions,
+        memory=memory,
+    ):
+        raise HTTPException(status_code=404, detail="Project not found")
+    return _project_payload(project_id)
+
+
+@app.delete("/api/projects/{project_id}")
+async def api_delete_project(project_id: str) -> dict[str, Any]:
+    if not store.delete_project(project_id):
+        raise HTTPException(status_code=404, detail="Project not found")
+    return {"ok": True}
+
+
+@app.get("/api/projects/{project_id}/files/{filename}")
+async def api_project_file(project_id: str, filename: str) -> FileResponse:
+    path = store.project_file_path(project_id, filename)
+    if not path:
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(path)
+
+
+@app.post("/api/projects/{project_id}/files")
+async def api_upload_project_files(project_id: str, request: Request) -> dict[str, Any]:
+    if not store.get_project(project_id):
+        raise HTTPException(status_code=404, detail="Project not found")
+    form = await request.form()
+    raw_files = form.getlist("files")
+    uploads: list[tuple[str, bytes]] = []
+    for upload in raw_files:
+        if hasattr(upload, "read"):
+            data = await upload.read()
+            uploads.append((getattr(upload, "filename", None) or "file", data))
+    if not uploads:
+        raise HTTPException(status_code=400, detail="No files uploaded")
+
+    ctx_raw = str(form.get("context_length") or "")
+    try:
+        context_length = int(ctx_raw) if ctx_raw else 32768
+    except ValueError:
+        context_length = 32768
+    context_length = max(context_length, 1024)
+    cap = project_capacity(context_length)
+    saved: list[dict[str, Any]] = []
+    for name, data in uploads:
+        ext = Path(name).suffix.lower()
+        if ext not in PROJECT_DOC_EXTS:
+            store.upsert_project_file(
+                project_id,
+                Path(name).name,
+                len(data),
+                "",
+                f"Skipped: unsupported type {ext or '(none)'}",
+            )
+            continue
+        dest = store.save_project_upload(project_id, name, data)
+        remaining = max(cap - store.extracted_chars_total(project_id, dest.name), 500)
+        ingested = ingest_files(
+            [(dest.name, data)],
+            vision=False,
+            context_length=context_length,
+            prior_chars=max(cap - remaining, 0),
+        )
+        text_parts = [item.text for item in ingested if item.text]
+        warnings = [item.warning for item in ingested if item.warning]
+        extracted = "\n\n".join(text_parts)
+        if len(extracted) > remaining:
+            extracted = extracted[: max(remaining - 12, 0)] + "\n[truncated]"
+            warnings.append("truncated to fit project capacity")
+        warning = "; ".join(w for w in warnings if w) or None
+        saved.append(
+            store.upsert_project_file(
+                project_id, dest.name, dest.stat().st_size, extracted, warning
+            )
+        )
+    detail = store.get_project_detail(project_id)
+    if not detail:
+        raise HTTPException(status_code=404, detail="Project not found")
+    detail["extracted_chars"] = store.extracted_chars_total(project_id)
+    detail["capacity"] = cap
+    detail["uploaded"] = saved
+    return detail
+
+
+@app.delete("/api/projects/{project_id}/files/{filename}")
+async def api_delete_project_file(project_id: str, filename: str) -> dict[str, Any]:
+    if not store.get_project(project_id):
+        raise HTTPException(status_code=404, detail="Project not found")
+    if not store.delete_project_file(project_id, filename):
+        raise HTTPException(status_code=404, detail="File not found")
+    return {"ok": True}
 
 
 @app.get("/api/chats/{chat_id}")
@@ -303,6 +456,20 @@ async def _send_turn(
 
     history = store.list_messages(chat_id)
     ollama_messages = _build_ollama_messages(chat_id, history, image_cache)
+    project_id = conv.get("project_id")
+    if project_id:
+        project = store.get_project(project_id)
+        if project:
+            files = store.list_project_files(project_id, include_text=True)
+            history_chars = sum(len(m.get("content") or "") for m in history)
+            system = build_system_content(
+                project,
+                files,
+                context_length=caps.context_length,
+                history_chars=history_chars,
+            )
+            if system:
+                ollama_messages = [{"role": "system", "content": system}] + ollama_messages
 
     thinking_acc = ""
     content_acc = ""
@@ -325,6 +492,13 @@ async def _send_turn(
         thinking=thinking_acc,
     )
     yield _sse("done", {"message": assistant})
+    if project_id:
+        try:
+            await maybe_update_memory(
+                store, project_id, model_name, user_body, content_acc
+            )
+        except Exception:  # noqa: BLE001 — memory extract must not fail the turn
+            pass
 
 
 def _stream(gen: AsyncIterator[str]) -> StreamingResponse:

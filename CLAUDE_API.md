@@ -12,12 +12,20 @@ All JSON. Errors: `{ "error": "…" }` with 4xx/5xx. SSE uses `text/event-stream
 | GET | `/api/models/{name}` | Capabilities from `/api/show` (see below) |
 | GET | `/api/image/models` | Comfy UNET/checkpoints + LoRAs (`{ "checkpoints", "loras" }`) |
 | GET | `/api/chats` | Conversation list, newest first |
-| POST | `/api/chats` | `{ "model": "…", "image_mode"? }` → new conversation |
-| GET | `/api/chats/{id}` | Conversation + messages (`image_mode` included) |
+| POST | `/api/chats` | `{ "model": "…", "image_mode"?, "project_id"? }` → new conversation |
+| GET | `/api/chats/{id}` | Conversation + messages (`image_mode`, `project_id` included) |
 | PATCH | `/api/chats/{id}` | `{ "title"?, "model"?, "image_mode"? }` |
 | DELETE | `/api/chats/{id}` | Delete chat + upload dir |
 | POST | `/api/chats/{id}/messages` | Send turn (multipart or JSON); **SSE** |
 | POST | `/api/chats/{id}/images` | Flux txt2img via ComfyUI; **SSE** |
+| GET | `/api/projects` | Project list, newest first |
+| POST | `/api/projects` | `{ "name" }` → new project |
+| GET | `/api/projects/{id}` | Project + files + chats |
+| PATCH | `/api/projects/{id}` | `{ "name"?, "instructions"?, "memory"? }` |
+| DELETE | `/api/projects/{id}` | Delete project + files; unlink chats |
+| POST | `/api/projects/{id}/files` | Multipart `files`; replace by filename |
+| GET | `/api/projects/{id}/files/{filename}` | Download original |
+| DELETE | `/api/projects/{id}/files/{filename}` | Remove file + extract |
 
 ### `GET /api/models/{name}`
 

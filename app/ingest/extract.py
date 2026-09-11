@@ -27,15 +27,21 @@ IMAGE_EXTS = {
     ".heif",
 }
 SVG_EXTS = {".svg"}
-TEXT_EXTS = {".txt", ".md"}
-ALLOWED_EXTS = IMAGE_EXTS | SVG_EXTS | TEXT_EXTS | {
-    ".json",
+TEXT_EXTS = {".txt", ".md", ".yaml", ".yml"}
+PROJECT_DOC_EXTS = {
+    ".txt",
     ".csv",
+    ".md",
     ".pdf",
     ".docx",
-    ".xlsx",
     ".pptx",
+    ".xlsx",
+    ".json",
+    ".jsonl",
+    ".yaml",
+    ".yml",
 }
+ALLOWED_EXTS = IMAGE_EXTS | SVG_EXTS | TEXT_EXTS | PROJECT_DOC_EXTS
 
 
 @dataclass
@@ -116,6 +122,20 @@ def _extract_json(data: bytes) -> str:
         return json.dumps(parsed, indent=2, ensure_ascii=False)
     except json.JSONDecodeError:
         return text
+
+
+def _extract_jsonl(data: bytes) -> str:
+    lines: list[str] = []
+    for raw in _decode_text(data).splitlines():
+        stripped = raw.strip()
+        if not stripped:
+            continue
+        try:
+            parsed = json.loads(stripped)
+            lines.append(json.dumps(parsed, indent=2, ensure_ascii=False))
+        except json.JSONDecodeError:
+            lines.append(raw)
+    return "\n".join(lines)
 
 
 def _extract_docx(data: bytes) -> str:
@@ -292,6 +312,12 @@ def _extract_one(filename: str, data: bytes, vision: bool) -> list[IngestedFile]
             )
             return results
 
+        if ext == ".jsonl":
+            results.append(
+                IngestedFile(filename=filename, kind="document", text=_extract_jsonl(data))
+            )
+            return results
+
         if ext == ".csv":
             results.append(
                 IngestedFile(filename=filename, kind="document", text=_extract_csv(data))
@@ -366,8 +392,14 @@ def _extract_one(filename: str, data: bytes, vision: bool) -> list[IngestedFile]
     return results
 
 
+def project_capacity(context_length: int) -> int:
+    from app.config import PROJECT_CONTEXT_CAP
+
+    return min(max(context_length, 1) * 3, PROJECT_CONTEXT_CAP)
+
+
 def _char_budget(context_length: int, prior_chars: int, file_count: int) -> int:
-    total = min(context_length * 3, 120_000)
+    total = project_capacity(context_length)
     reserve = max(int(total * 0.25), prior_chars)
     remaining = max(total - reserve, 2000)
     if file_count <= 0:

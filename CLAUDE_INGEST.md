@@ -10,17 +10,20 @@ RAG is out of scope until people attach libraries too large for the context wind
 
 Images: `.png .jpg .jpeg .gif .webp .bmp .tif .tiff .heic .svg`
 
-Documents: `.docx .xlsx .pptx .pdf .csv .txt .md .json`
+Documents: `.docx .xlsx .pptx .pdf .csv .txt .md .json .jsonl .yaml .yml`
 
 Reject anything else with a per-file warning. Size cap **25 MB** per file.
+
+Project Context uploads use the document list only (no images). Re-uploading the same basename **replaces** the stored original and re-extracts. Delete removes the extract so the next chat turn no longer injects it. Project extracts are injected live as a system message; they are not copied into `messages.content`.
 
 ## Extractors
 
 | Kind | Module / lib | Output |
 |---|---|---|
 | Images | stored as bytes | `images[]` if model has `vision`; else skip + warning |
-| `.txt` `.md` | utf-8 / latin-1 fallback | raw text |
+| `.txt` `.md` `.yaml` `.yml` | utf-8 / latin-1 fallback | raw text |
 | `.json` | json pretty-print | text |
+| `.jsonl` | each line pretty-printed if valid JSON | text |
 | `.csv` | csv → markdown table | text |
 | `.pdf` | pypdf | page text; if empty/whitespace and vision, rasterize pages (pypdfium2) as images (max 8 pages) |
 | `.docx` | python-docx | paragraphs + tables as markdown |
@@ -40,6 +43,8 @@ Store that wrapped text in `messages.content` for the user turn. Keep original f
 ## Truncation
 
 Character budget ≈ `min(context_length * 3, 120_000)` minus a reserve for prior turns (~25%). Split the budget across files. If truncated, append `[truncated]` inside the attachment block and set `attachment.warning`.
+
+Project Context uses the same formula against the **currently selected model** (`/api/show` `context_length`). The bar is extracted characters vs that cap — not a measured token count. English is roughly 3–4 characters per token, so `* 3` is a conservative stand-in for “will this still fit,” with a hard 120k-character ceiling. Chat history still takes space at send time, so the bar is an upper bound, not a guarantee.
 
 ## Replay
 
