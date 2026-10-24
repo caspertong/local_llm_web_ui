@@ -171,21 +171,6 @@ def _extract_xlsx(data: bytes) -> str:
     return "\n\n".join(chunks)
 
 
-def _extract_pptx(data: bytes) -> str:
-    from pptx import Presentation
-
-    prs = Presentation(io.BytesIO(data))
-    slides: list[str] = []
-    for i, slide in enumerate(prs.slides, 1):
-        bits: list[str] = []
-        for shape in slide.shapes:
-            if hasattr(shape, "text") and shape.text.strip():
-                bits.append(shape.text.strip())
-        body = "\n".join(bits) if bits else "(no text)"
-        slides.append(f"--- Slide {i} ---\n{body}")
-    return "\n\n".join(slides)
-
-
 def _extract_pdf_text(data: bytes) -> str:
     from pypdf import PdfReader
 
@@ -337,8 +322,16 @@ def _extract_one(filename: str, data: bytes, vision: bool) -> list[IngestedFile]
             return results
 
         if ext == ".pptx":
+            from app.ingest.pptx_extract import extract_pptx
+
+            extracted = extract_pptx(data)
             results.append(
-                IngestedFile(filename=filename, kind="document", text=_extract_pptx(data))
+                IngestedFile(
+                    filename=filename,
+                    kind="document",
+                    text=extracted.text,
+                    warning=extracted.warning,
+                )
             )
             return results
 
@@ -410,15 +403,40 @@ def _char_budget(context_length: int, prior_chars: int, file_count: int) -> int:
 _TRUNC_MARK = "\n[truncated]"
 
 
-def ingest_files(
+async def ingest_files(
     files: list[tuple[str, bytes]],
     *,
     vision: bool,
     context_length: int,
     prior_chars: int = 0,
+    vision_model: Optional[str] = None,
 ) -> list[IngestedFile]:
     extracted: list[IngestedFile] = []
     for name, data in files:
+        ext = Path(name).suffix.lower()
+        if ext == ".pptx" and len(data) <= MAX_FILE_BYTES:
+            from app.ingest.pptx_extract import extract_pptx_visual
+
+            try:
+                slide_text = await extract_pptx_visual(data, vision_model)
+            except Exception as exc:  # noqa: BLE001 — surface extractor failures as warnings
+                extracted.append(
+                    IngestedFile(
+                        filename=name,
+                        kind="document",
+                        warning=f"Failed to read file: {exc}",
+                    )
+                )
+                continue
+            extracted.append(
+                IngestedFile(
+                    filename=name,
+                    kind="document",
+                    text=slide_text.text,
+                    warning=slide_text.warning,
+                )
+            )
+            continue
         extracted.extend(_extract_one(name, data, vision))
 
     docs = [f for f in extracted if f.text]

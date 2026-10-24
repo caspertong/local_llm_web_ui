@@ -43,6 +43,8 @@ If `thinking` is missing from capabilities, omit `think` entirely.
 
 If `vision` is in capabilities, image bytes (and rasterized empty PDFs) go on the user message as `images` (base64). Otherwise images are skipped with a warning attached to the user message. Assistant-generated images are not sent back to Ollama.
 
+PowerPoint pictures and diagrams are different: when the selected model has vision, each visual slide is described once at upload and that description is stored in the extracted text. Later turns inject the text. Chart numbers are read from the file, not from the vision model.
+
 ## Image generation (ComfyUI)
 
 When Image mode is on, the client POSTs `/api/chats/{id}/images` instead of `/api/chats/{id}/messages`. FastAPI queues a Flux txt2img workflow on Comfy (`POST /prompt`, poll `/history`, `GET /view`) and stores the PNG under `data/uploads/{conversation_id}/`. The assistant message has `attachments` with `kind: image`.

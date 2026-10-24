@@ -436,6 +436,12 @@ function renderFileGrid() {
     card.querySelector(".name").textContent = file.filename;
     card.querySelector(".size").textContent = formatBytes(file.size_bytes || 0);
     card.querySelector(".badge").textContent = ext.slice(0, 4);
+    if (file.warning) {
+      const note = document.createElement("div");
+      note.className = "warning";
+      note.textContent = file.warning;
+      card.appendChild(note);
+    }
     card.querySelector(".remove").addEventListener("click", () => deleteProjectFile(file.filename));
     els.fileGrid.appendChild(card);
   }
@@ -476,6 +482,9 @@ async function uploadProjectFiles(fileList) {
   }
   if (![...form.keys()].length) return;
   form.append("context_length", String(state.caps?.context_length || 32768));
+  if (state.model) form.append("model", state.model);
+  const hasPptx = [...fileList].some((file) => file.name.toLowerCase().endsWith(".pptx"));
+  if (hasPptx && state.caps?.vision) showBanner("Reading slides…");
   const res = await fetch(`/api/projects/${state.projectId}/files`, {
     method: "POST",
     body: form,
@@ -485,6 +494,7 @@ async function uploadProjectFiles(fileList) {
     showBanner(data.error || "Could not upload files");
     return;
   }
+  if (hasPptx && state.caps?.vision) showBanner("");
   state.project = data;
   renderProjectRail();
 }

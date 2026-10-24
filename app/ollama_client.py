@@ -113,13 +113,18 @@ async def chat_stream(
         raise OllamaError(f"Ollama stream failed: {exc}") from exc
 
 
-async def chat_once(model: str, messages: list[dict[str, Any]]) -> str:
+async def chat_once(
+    model: str,
+    messages: list[dict[str, Any]],
+    *,
+    read_timeout: float = 90.0,
+) -> str:
     body: dict[str, Any] = {
         "model": model,
         "messages": messages,
         "stream": False,
     }
-    timeout = httpx.Timeout(60.0, read=90.0)
+    timeout = httpx.Timeout(60.0, read=read_timeout)
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(f"{OLLAMA_HOST}/api/chat", json=body)

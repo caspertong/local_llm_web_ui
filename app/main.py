@@ -205,6 +205,21 @@ async def api_project_file(project_id: str, filename: str) -> FileResponse:
     return FileResponse(path)
 
 
+async def _project_vision_model(form, uploads: list[tuple[str, bytes]]) -> Optional[str]:
+    if not any(Path(name).suffix.lower() == ".pptx" for name, _ in uploads):
+        return None
+    model_name = str(form.get("model") or "").strip()
+    if not model_name:
+        return None
+    try:
+        show = await show_model(model_name)
+    except OllamaError:
+        return None
+    if from_show(model_name, show).vision:
+        return model_name
+    return None
+
+
 @app.post("/api/projects/{project_id}/files")
 async def api_upload_project_files(project_id: str, request: Request) -> dict[str, Any]:
     if not store.get_project(project_id):
@@ -226,6 +241,7 @@ async def api_upload_project_files(project_id: str, request: Request) -> dict[st
         context_length = 32768
     context_length = max(context_length, 1024)
     cap = project_capacity(context_length)
+    vision_model = await _project_vision_model(form, uploads)
     saved: list[dict[str, Any]] = []
     for name, data in uploads:
         ext = Path(name).suffix.lower()
@@ -240,11 +256,12 @@ async def api_upload_project_files(project_id: str, request: Request) -> dict[st
             continue
         dest = store.save_project_upload(project_id, name, data)
         remaining = max(cap - store.extracted_chars_total(project_id, dest.name), 500)
-        ingested = ingest_files(
+        ingested = await ingest_files(
             [(dest.name, data)],
             vision=False,
             context_length=context_length,
             prior_chars=max(cap - remaining, 0),
+            vision_model=vision_model,
         )
         text_parts = [item.text for item in ingested if item.text]
         warnings = [item.warning for item in ingested if item.warning]
@@ -395,11 +412,15 @@ async def _send_turn(
         dest = store.save_upload(chat_id, name, data)
         originals[name] = dest.name
 
-    ingested = ingest_files(
+    if caps.vision and any(Path(name).suffix.lower() == ".pptx" for name, _ in uploads):
+        yield _sse("status", {"text": "Reading slides…"})
+
+    ingested = await ingest_files(
         uploads,
         vision=caps.vision,
         context_length=caps.context_length,
         prior_chars=sum(len(m.get("content") or "") for m in store.list_messages(chat_id)),
+        vision_model=model_name if caps.vision else None,
     )
 
     image_cache: dict[str, bytes] = {}

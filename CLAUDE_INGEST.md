@@ -28,7 +28,7 @@ Project Context uploads use the document list only (no images). Re-uploading the
 | `.pdf` | pypdf | page text; if empty/whitespace and vision, rasterize pages (pypdfium2) as images (max 8 pages) |
 | `.docx` | python-docx | paragraphs + tables as markdown |
 | `.xlsx` | openpyxl | each sheet as a markdown table |
-| `.pptx` | python-pptx | slide title + body per slide |
+| `.pptx` | python-pptx | slide text, tables, and native chart values. Pictures, SmartArt, and drawn diagrams are captioned once when the selected model has vision (rendered with LibreOffice when it is installed, otherwise embedded pictures). Captions are stored in the extract. At most 8 visual slides. |
 
 Wrap extracted text so the model (and history replay) can see boundaries:
 
